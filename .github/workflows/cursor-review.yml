@@ -12,6 +12,10 @@ on:
         required: false
         type: boolean
         default: false
+      trigger-method:
+        description: 'When the review fires. "auto" runs on every push. "comment" runs only when an authorized commenter types /cursor-review on the PR.'
+        type: string
+        default: 'auto'
     secrets:
       CURSOR_API_KEY:
         required: true
@@ -19,18 +23,50 @@ on:
 jobs:
   cursor-review:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
+    if: |
+      (inputs.trigger-method == 'auto'
+        && github.event_name == 'pull_request'
+        && github.event.pull_request.draft == false) ||
+      (inputs.trigger-method == 'comment'
+        && github.event_name == 'issue_comment'
+        && github.event.issue.pull_request != null
+        && contains(github.event.comment.body, '/cursor-review')
+        && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     permissions:
       pull-requests: write
       contents: read
       issues: write
 
     steps:
+      - name: Resolve PR ref
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            PR_NUMBER=${{ github.event.issue.number }}
+            PR_HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json headRefOid -q .headRefOid)
+            PR_BASE_SHA=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json baseRefOid -q .baseRefOid)
+          else
+            PR_NUMBER=${{ github.event.pull_request.number }}
+            PR_HEAD_SHA=${{ github.event.pull_request.head.sha }}
+            PR_BASE_SHA=${{ github.event.pull_request.base.sha }}
+          fi
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+          echo "PR_HEAD_SHA=$PR_HEAD_SHA" >> $GITHUB_ENV
+          echo "PR_BASE_SHA=$PR_BASE_SHA" >> $GITHUB_ENV
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Acknowledge trigger
+        if: github.event_name == 'issue_comment'
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions -f content=eyes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.PR_HEAD_SHA }}
 
       - name: Check for WIP commit
         id: check-wip
@@ -119,21 +155,21 @@ jobs:
 
           Context:
           - Repo: ${{ github.repository }}
-          - PR Number: ${{ github.event.pull_request.number }}
-          - PR Head SHA: ${{ github.event.pull_request.head.sha }}
-          - PR Base SHA: ${{ github.event.pull_request.base.sha }}
+          - PR Number: ${{ env.PR_NUMBER }}
+          - PR Head SHA: ${{ env.PR_HEAD_SHA }}
+          - PR Base SHA: ${{ env.PR_BASE_SHA }}
 
           Tasks:
           1) Read any CLAUDE.md, .cursorrules, or similar convention files in the repo root and in each directory that contains changed files. Collect the conventions that are relevant to the changed code.
 
           2) Get the PR diff: gh pr diff
 
-          3) Get changed files with patches: gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --paginate --jq ".[] | {filename,patch}"
+          3) Get changed files with patches: gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/files --paginate --jq ".[] | {filename,patch}"
 
           4) Get existing review context:
              - Top-level PR comments: gh pr view --json comments
-             - Review comments and threads: gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments --paginate
-             - Submitted reviews: gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews --paginate
+             - Review comments and threads: gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/comments --paginate
+             - Submitted reviews: gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews --paginate
 
           5) Build a dismissed-issues list:
              - For EACH review comment thread, check whether the PR author replied dismissing, explaining, or acknowledging the concern (e.g. "intentional", "not relevant", "will address later", "by design", or any reply that indicates the author considered and declined to fix).
@@ -238,7 +274,7 @@ jobs:
 
           Context:
           - Repo: ${{ github.repository }}
-          - PR Number: ${{ github.event.pull_request.number }}
+          - PR Number: ${{ env.PR_NUMBER }}
           - Blocking Review: ${{ env.BLOCKING_REVIEW }}
 
           Read /tmp/review-context.json for the PR context (diff, changed files, prior comments, prior no-issue comment IDs).
@@ -271,13 +307,13 @@ jobs:
           '"$SIGNATURE_LINE"'
 
           If NO findings survive validation:
-          - Post a single top-level comment: gh pr comment ${{ github.event.pull_request.number }} --body "BODY_HERE"
+          - Post a single top-level comment: gh pr comment ${{ env.PR_NUMBER }} --body "BODY_HERE"
           - The body should state no new issues were found, plus the signature.
 
           If findings DO survive:
           - Submit ONE review via the GitHub Reviews API with inline comments and a concise summary body with the signature.
           - Build a JSON array: [{ "path": "<file>", "position": <diff_position>, "body": "<emoji> <body>" }]
-          - Submit: gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews -f event=COMMENT -f body="$SUMMARY" -f comments="[$COMMENTS_JSON]"
+          - Submit: gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews -f event=COMMENT -f body="$SUMMARY" -f comments="[$COMMENTS_JSON]"
           - Do NOT use: gh pr review --approve or --request-changes
 
           Comment rules:
@@ -310,6 +346,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} \
+          gh pr comment ${{ env.PR_NUMBER }} \
             --repo ${{ github.repository }} \
             --body "🤖 *Cursor review unavailable: quota exceeded. Manual review recommended.*"

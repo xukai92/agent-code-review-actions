@@ -7,6 +7,10 @@ on:
         description: 'Suppress nit-level feedback (style, naming, theoretical edge cases)'
         type: boolean
         default: true
+      trigger-method:
+        description: 'When the review fires. "auto" runs on every push. "comment" runs only when an authorized commenter types /claude-review on the PR.'
+        type: string
+        default: 'auto'
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: true
@@ -14,7 +18,15 @@ on:
 jobs:
   claude-review:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
+    if: |
+      (inputs.trigger-method == 'auto'
+        && github.event_name == 'pull_request'
+        && github.event.pull_request.draft == false) ||
+      (inputs.trigger-method == 'comment'
+        && github.event_name == 'issue_comment'
+        && github.event.issue.pull_request != null
+        && contains(github.event.comment.body, '/claude-review')
+        && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     permissions:
       contents: read
       pull-requests: read
@@ -22,10 +34,31 @@ jobs:
       id-token: write
 
     steps:
+      - name: Resolve PR ref
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            PR_NUMBER=${{ github.event.issue.number }}
+            PR_HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json headRefOid -q .headRefOid)
+          else
+            PR_NUMBER=${{ github.event.pull_request.number }}
+            PR_HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          fi
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+          echo "PR_HEAD_SHA=$PR_HEAD_SHA" >> $GITHUB_ENV
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Acknowledge trigger
+        if: github.event_name == 'issue_comment'
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions -f content=eyes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.PR_HEAD_SHA }}
           fetch-depth: 1
 
       - name: Check for WIP commit
@@ -51,15 +84,15 @@ jobs:
           plugins: 'code-review@claude-code-plugins'
           prompt: |
             Before running the review, read ALL existing review comment threads on this PR using:
-              gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments --paginate
-              gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews --paginate
+              gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/comments --paginate
+              gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews --paginate
 
             Build a dismissed-issues list: for each comment thread where the PR author replied dismissing, explaining, or acknowledging the concern (e.g. "intentional", "not relevant", "will address later", "by design"), or where the thread was resolved, record the file, line range, and issue summary. These issues are CLOSED and must NOT be re-raised.
 
             When reviewing, do NOT re-raise any dismissed issue, even if you independently consider it a real problem. Match by semantic similarity — e.g. "TLS verification disabled" and "SSL cert check bypassed" are the same issue. The only exception: new code in a DIFFERENT file/function introducing a new instance of a dismissed pattern.
 
             Now run the review:
-            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+            /code-review:code-review ${{ github.repository }}/pull/${{ env.PR_NUMBER }}
             ${{ inputs.no-nit == true && 'No-nit mode: Only flag substantive issues — bugs, security vulnerabilities, correctness errors, significant design concerns. Skip style preferences, naming nits, theoretical edge cases unlikely in practice, minor refactoring suggestions. If in doubt, do not comment.' || '' }}
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
