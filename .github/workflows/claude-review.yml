@@ -25,7 +25,7 @@ jobs:
       (inputs.trigger-method == 'comment'
         && github.event_name == 'issue_comment'
         && github.event.issue.pull_request != null
-        && contains(github.event.comment.body, '/claude-review')
+        && startsWith(github.event.comment.body, '/claude-review')
         && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     permissions:
       contents: read
@@ -50,6 +50,7 @@ jobs:
 
       - name: Acknowledge trigger
         if: github.event_name == 'issue_comment'
+        continue-on-error: true
         run: |
           gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions -f content=eyes
         env:

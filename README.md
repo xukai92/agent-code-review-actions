@@ -56,6 +56,7 @@ jobs:
 ```
 
 **Notes:**
+- The slash command must be the **first thing in the comment** — no leading whitespace, no quoted text above it. The check uses `startsWith`, so a comment that merely contains `/claude-review` somewhere in the body (e.g. in a quote block or as part of `/claude-review-something`) will not trigger.
 - The `author_association` gate (`OWNER`, `MEMBER`, `COLLABORATOR`) prevents drive-by commenters from triggering paid LLM calls.
 - In comment mode, `pull_request` events are silently skipped by the job-level `if:` — the wrapper subscription is needed so the parent workflow fires on `issue_comment`, not to run auto reviews.
 - The two modes are mutually exclusive per job. For a manual re-trigger in auto mode, use the GitHub Actions "Re-run" button.
@@ -115,6 +116,7 @@ jobs:
 ```
 
 **Notes:**
+- The slash command must be the **first thing in the comment** — no leading whitespace, no quoted text above it. The check uses `startsWith`, so a comment that merely contains `/cursor-review` somewhere in the body (e.g. in a quote block or as part of `/cursor-review-something`) will not trigger.
 - The `author_association` gate (`OWNER`, `MEMBER`, `COLLABORATOR`) prevents drive-by commenters from triggering paid API calls.
 - In comment mode, the workflow reacts to the triggering comment with 👀 to confirm the run was picked up.
 - In comment mode, `pull_request` events are silently skipped by the job-level `if:`.
