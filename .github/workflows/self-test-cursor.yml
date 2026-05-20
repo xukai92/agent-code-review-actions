@@ -3,6 +3,8 @@ name: Self-test Cursor Review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
+  issue_comment:
+    types: [created]
 
 jobs:
   cursor-review:
@@ -14,5 +16,13 @@ jobs:
     uses: ./.github/workflows/cursor-review.yml
     with:
       expert-mode: true
+    secrets:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+
+  # Exercises the comment trigger path. To test: comment "/cursor-review" on a PR to this repo.
+  cursor-review-comment-trigger:
+    uses: ./.github/workflows/cursor-review.yml
+    with:
+      trigger-method: comment
     secrets:
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
