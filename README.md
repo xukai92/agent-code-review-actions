@@ -1,6 +1,8 @@
-# claude-code-review-config
+# agent-code-review-actions
 
 Reusable GitHub Actions workflows for AI-powered code review.
+
+> Renamed from `claude-code-review-config` on 2026-05-23 to better reflect scope (hosts both `claude-review` and `cursor-review` reusable workflows; can host others). GitHub's automatic repo-rename redirect keeps the old `uses: xukai92/agent-code-review-actions/...@<ref>` paths working short-term — update at your leisure.
 
 ## Workflows
 
@@ -30,7 +32,7 @@ on:
 
 jobs:
   claude-review:
-    uses: xukai92/claude-code-review-config/.github/workflows/claude-review.yml@main
+    uses: xukai92/agent-code-review-actions/.github/workflows/claude-review.yml@main
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
@@ -48,7 +50,7 @@ on:
 
 jobs:
   claude-review:
-    uses: xukai92/claude-code-review-config/.github/workflows/claude-review.yml@main
+    uses: xukai92/agent-code-review-actions/.github/workflows/claude-review.yml@main
     with:
       trigger-method: comment
     secrets:
@@ -90,7 +92,7 @@ on:
 
 jobs:
   cursor-review:
-    uses: xukai92/claude-code-review-config/.github/workflows/cursor-review.yml@main
+    uses: xukai92/agent-code-review-actions/.github/workflows/cursor-review.yml@main
     secrets:
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
 ```
@@ -108,7 +110,7 @@ on:
 
 jobs:
   cursor-review:
-    uses: xukai92/claude-code-review-config/.github/workflows/cursor-review.yml@main
+    uses: xukai92/agent-code-review-actions/.github/workflows/cursor-review.yml@main
     with:
       trigger-method: comment
     secrets:
