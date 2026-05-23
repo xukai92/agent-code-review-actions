@@ -29,8 +29,8 @@ jobs:
         && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write
+      issues: write
       id-token: write
 
     steps:
@@ -95,5 +95,56 @@ jobs:
             Now run the review:
             /code-review:code-review ${{ github.repository }}/pull/${{ env.PR_NUMBER }}
             ${{ inputs.no-nit == true && 'No-nit mode: Only flag substantive issues — bugs, security vulnerabilities, correctness errors, significant design concerns. Skip style preferences, naming nits, theoretical edge cases unlikely in practice, minor refactoring suggestions. If in doubt, do not comment.' || '' }}
+
+            After the plugin completes, post the findings as inline review comments:
+
+            ── Posting ──
+            Signature line — append to every top-level comment body and every review summary body, on its own lines after a blank line and a horizontal rule:
+
+            ---
+            ${{ env.SIGNATURE_LINE }}
+
+            If the review found NO issues:
+            - Post a single top-level comment:
+                gh pr comment ${{ env.PR_NUMBER }} --repo ${{ github.repository }} --body "BODY_HERE"
+            - The body should state no new issues were found, plus the signature.
+
+            If the review found issues:
+            - Build a JSON array of inline comment objects:
+                [{ "path": "<file>", "position": <diff_position>, "body": "<emoji> <body>" }]
+              Rules for each entry:
+              - "position" is the 1-based line position within the unified diff (not the source line number)
+              - One issue per comment
+              - Natural tone, specific and actionable
+              - Do NOT mention confidence scores or that this is automated
+              - Emoji convention: 🚨 Critical · 🔒 Security · ⚡ Performance · ⚠️ Logic · ✨ Improvement
+            - Submit ONE batched review via the GitHub Reviews API:
+                gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/reviews \
+                  -f event=COMMENT \
+                  -f body="SUMMARY_WITH_SIGNATURE" \
+                  -f comments="[$COMMENTS_JSON]"
+            - Do NOT use: gh pr review --approve or --request-changes
+
+            ── Blocking behavior ──
+            - If any 🚨 or 🔒 issue comments were posted: echo "CRITICAL_ISSUES_FOUND=true" >> $GITHUB_ENV
+            - Otherwise: echo "CRITICAL_ISSUES_FOUND=false" >> $GITHUB_ENV
+            - Always set CRITICAL_ISSUES_FOUND at the end
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BLOCKING_REVIEW: ${{ vars.BLOCKING_REVIEW || 'false' }}
+          SIGNATURE_LINE: "🤖 *Reviewed by claude-review · config (commit ${{ github.sha }})*"
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
+
+      - name: Check blocking review results
+        if: steps.check-wip.outputs.skip != 'true' && vars.BLOCKING_REVIEW == 'true'
+        run: |
+          echo "Checking for critical issues..."
+          echo "CRITICAL_ISSUES_FOUND: ${CRITICAL_ISSUES_FOUND:-unset}"
+
+          if [ "${CRITICAL_ISSUES_FOUND:-false}" = "true" ]; then
+            echo "❌ Critical issues found and blocking review is enabled. Failing the workflow."
+            exit 1
+          else
+            echo "✅ No blocking issues found."
+          fi
