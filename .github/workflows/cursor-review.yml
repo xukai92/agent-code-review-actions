@@ -8,7 +8,7 @@ on:
         type: boolean
         default: true
       expert-mode:
-        description: 'Use top-tier Cursor models (gpt-5.4-mini-medium, gpt-5.3-codex, gpt-5.4-medium) instead of the cost-effective defaults.'
+        description: 'Use higher-effort GPT-5.6 Luna models instead of the cost-effective defaults.'
         required: false
         type: boolean
         default: false
@@ -97,13 +97,13 @@ jobs:
         if: steps.check-wip.outputs.skip != 'true'
         run: |
           if [ "${{ inputs.expert-mode }}" = "true" ]; then
-            M_C=gpt-5.4-mini-medium
-            M_R=gpt-5.3-codex
-            M_V=gpt-5.4-medium
+            M_C=gpt-5.6-luna-medium
+            M_R=gpt-5.6-luna-xhigh
+            M_V=gpt-5.6-luna-high
           else
-            M_C=gpt-5.4-nano-low
-            M_R=composer-2
-            M_V=gpt-5.4-mini-low
+            M_C=gpt-5.6-luna-low
+            M_R=gpt-5.6-luna-medium
+            M_V=gpt-5.6-luna-low
           fi
           echo "MODEL_CONTEXT=$M_C" >> "$GITHUB_ENV"
           echo "MODEL_REVIEW=$M_R" >> "$GITHUB_ENV"
