@@ -74,10 +74,19 @@ Runs a three-step (context → review → validate+post) code review using the C
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
 | `no-nit` | boolean | `true` | Suppress style/naming/minor suggestions |
-| `expert-mode` | boolean | `false` | Use top-tier Cursor models instead of cost-effective defaults |
+| `expert-mode` | boolean | `false` | Use higher-effort Sol models for review and validation |
 | `trigger-method` | string | `'auto'` | `'auto'` fires on every PR push; `'comment'` fires on `/cursor-review` comment |
 
 **Secrets:** `CURSOR_API_KEY` (required)
+
+The workflow selects models from the Cursor CLI catalog for the configured account. Each stage prefers GPT-6 and falls back to the corresponding GPT-5.6 model if needed:
+
+| Mode | Context | Review | Validation |
+|------|---------|--------|------------|
+| Default | Luna low | Sol medium | Luna high |
+| Expert | Luna medium | Sol high | Sol medium |
+
+The review signature records the models actually selected. If neither version of a stage's model is available, the workflow fails with an error.
 
 #### Trigger modes
 
