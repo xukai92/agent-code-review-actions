@@ -8,7 +8,7 @@ on:
         type: boolean
         default: true
       expert-mode:
-        description: 'Use higher-effort GPT-5.6 Luna models instead of the cost-effective defaults.'
+        description: 'Use higher-effort Sol models for review and validation instead of the cost-effective defaults.'
         required: false
         type: boolean
         default: false
@@ -95,15 +95,34 @@ jobs:
 
       - name: Resolve models
         if: steps.check-wip.outputs.skip != 'true'
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
         run: |
+          # Cursor model availability depends on the account and can lag OpenAI releases.
+          # Use GPT-6 when Cursor exposes the variant; otherwise use GPT-5.6.
+          MODEL_LIST=$(agent models)
+          resolve_model() {
+            local preferred="$1" fallback="$2"
+            if awk -v id="$preferred" '$1 == id { found=1 } END { exit !found }' <<< "$MODEL_LIST"; then
+              echo "$preferred"
+            elif awk -v id="$fallback" '$1 == id { found=1 } END { exit !found }' <<< "$MODEL_LIST"; then
+              echo "$fallback"
+            else
+              echo "::error::Neither $preferred nor $fallback is available in this Cursor account." >&2
+              return 1
+            fi
+          }
           if [ "${{ inputs.expert-mode }}" = "true" ]; then
-            M_C=gpt-5.6-luna-medium
-            M_R=gpt-5.6-luna-xhigh
-            M_V=gpt-5.6-luna-high
+            M_C=$(resolve_model gpt-6-luna-medium gpt-5.6-luna-medium)
+            M_R=$(resolve_model gpt-6-sol-high gpt-5.6-sol-high)
+            M_V=$(resolve_model gpt-6-sol-medium gpt-5.6-sol-medium)
           else
-            M_C=gpt-5.6-luna-low
-            M_R=gpt-5.6-luna-medium
-            M_V=gpt-5.6-luna-low
+            M_C=$(resolve_model gpt-6-luna-low gpt-5.6-luna-low)
+            M_R=$(resolve_model gpt-6-sol-medium gpt-5.6-sol-medium)
+            M_V=$(resolve_model gpt-6-luna-high gpt-5.6-luna-high)
+          fi
+          if [[ "$M_C $M_R $M_V" == *gpt-5.6* ]]; then
+            echo "::notice::Some GPT-6 models are unavailable in Cursor; using GPT-5.6 fallbacks where needed."
           fi
           echo "MODEL_CONTEXT=$M_C" >> "$GITHUB_ENV"
           echo "MODEL_REVIEW=$M_R" >> "$GITHUB_ENV"
